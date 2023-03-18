@@ -7,6 +7,5 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 
-# development tools
 RUN go install github.com/cosmtrek/air@v1.29.0
-CMD ["air", "-c", ".air.toml"]
+CMD ["air", "-c", ".air.toml"]⏎

@@ -2,8 +2,8 @@ services:
   app:
     build:
       context: ./app
-      dockerfile: Dockerfile.dev
-    port:
+      dockerfile: Dockerfile
+    ports:
       - '8080:8080'
     volumes:
       - ./app/:/go/src/app
@@ -22,10 +22,15 @@ services:
       - ./db/initdb.d:/docker-entrypoint-initdb.d
       - dbdata:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD", "pg_isready" ]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB || exit 1"
+        ]
       interval: 1s
       timeout: 3s
       retries: 30
+    restart: always
 
 volumes:
   dbdata: null
