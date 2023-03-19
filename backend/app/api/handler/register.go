@@ -76,7 +76,7 @@ func RegisterBegin(db *sql.DB, w *webauthn.WebAuthn) echo.HandlerFunc {
 			MaxAge:   86400 * 7,
 			HttpOnly: true,
 		}
-		sess.Values["sessionData"] = *sessionData
+		sess.Values["sessionData"] = sessionData
 		if err := sess.Save(c.Request(), c.Response()); err != nil {
 			c.Logger().Error(err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
@@ -124,13 +124,13 @@ func RegisterFinish(db *sql.DB, w *webauthn.WebAuthn) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 		}
 
-		sessionData := sess.Values["sessionData"]
+		sessionData := sess.Values["sessionData"].(*webauthn.SessionData)
 		if sessionData == nil {
 			fmt.Println("sessionData is nil")
 			return c.JSON(http.StatusBadRequest, map[string]string{"message": "Invalid request"})
 		}
 
-		credential, err := w.FinishRegistration(user, *(sessionData.(*webauthn.SessionData)), c.Request())
+		credential, err := w.FinishRegistration(user, *sessionData, c.Request())
 		if err != nil {
 			c.Logger().Error(err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
