@@ -18,6 +18,8 @@ services:
       - '5432'
     env_file:
       - .env
+    environment:
+      POSTGRES_INITDB_ARGS: '--encoding=UTF-8 --lc-collate=C --lc-ctype=C'
     volumes:
       - ./db/initdb.d:/docker-entrypoint-initdb.d
       - dbdata:/var/lib/postgresql/data
