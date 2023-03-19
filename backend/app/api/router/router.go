@@ -41,6 +41,8 @@ func NewRouter(db *sql.DB, w *webauthn.WebAuthn) *echo.Echo {
 	g.POST("/register/:name", handler.RegisterFinish(db, w))
 
 	// SignIn
+	g.GET("/login/:name", handler.LoginBegin(db, w))
+	g.POST("/login/:name", handler.LoginFinish(db, w))
 
 	return e
 }
