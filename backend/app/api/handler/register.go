@@ -2,12 +2,11 @@ package handler
 
 import (
 	"database/sql"
-	"encoding/json"
-	"fido2-test/model"
-	"fmt"
+	"fido2-test/utils"
 	"net/http"
 	"strings"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
@@ -21,36 +20,11 @@ func RegisterBegin(db *sql.DB, w *webauthn.WebAuthn) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"message": "Path parameter 'name' is required"})
 		}
 
-		ctx := c.Request().Context()
-		conn, err := db.Conn(ctx)
-		defer conn.Close()
+		user, err := utils.GetUserWithCredentials(db, c.Request().Context(), name)
 		if err != nil {
-			c.Logger().Error(err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
-		}
-
-		stmt, err := conn.PrepareContext(ctx, "SELECT id, name, display_name FROM users WHERE name = $1;")
-		defer stmt.Close()
-		if err != nil {
-			c.Logger().Error(err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
-		}
-
-		// ユーザーの取得
-		user := &model.User{}
-		if err := stmt.QueryRowContext(ctx, name).Scan(&user.ID, &user.Name, &user.DisplayName); err != nil {
-			// ユーザーが存在しない場合は新規作成
 			if err == sql.ErrNoRows {
-				stmt, err := conn.PrepareContext(ctx, "INSERT INTO users (name, display_name) VALUES ($1,$2) RETURNING id;")
+				user, err = utils.CreateUser(db, c.Request().Context(), name, strings.Split(name, "@")[0])
 				if err != nil {
-					c.Logger().Error(err)
-					return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
-				}
-				defer stmt.Close()
-
-				user.Name = name
-				user.DisplayName = strings.Split(name, "@")[0]
-				if err := stmt.QueryRowContext(ctx, user.Name, user.DisplayName).Scan(&user.ID); err != nil {
 					c.Logger().Error(err)
 					return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 				}
@@ -60,7 +34,11 @@ func RegisterBegin(db *sql.DB, w *webauthn.WebAuthn) echo.HandlerFunc {
 			}
 		}
 
-		creation, sessionData, err := w.BeginRegistration(user)
+		registerOptions := func(credCreationOpts *protocol.PublicKeyCredentialCreationOptions) {
+			credCreationOpts.CredentialExcludeList = user.CredentialExcludeList()
+		}
+
+		creation, sessionData, err := w.BeginRegistration(user, registerOptions)
 		if err != nil {
 			c.Logger().Error(err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
@@ -93,29 +71,10 @@ func RegisterFinish(db *sql.DB, w *webauthn.WebAuthn) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"message": "Path parameter 'name' is required"})
 		}
 
-		ctx := c.Request().Context()
-		conn, err := db.Conn(ctx)
-		defer conn.Close()
+		user, err := utils.GetUser(db, c.Request().Context(), name)
 		if err != nil {
 			c.Logger().Error(err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
-		}
-
-		stmt, err := conn.PrepareContext(ctx, "SELECT id, name, display_name FROM users WHERE name = $1;")
-		defer stmt.Close()
-		if err != nil {
-			c.Logger().Error(err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
-		}
-
-		user := &model.User{}
-		if err := stmt.QueryRowContext(ctx, name).Scan(&user.ID, &user.Name, &user.DisplayName); err != nil {
-			if err == sql.ErrNoRows {
-				return c.JSON(http.StatusBadRequest, map[string]string{"message": `User(name is ${name}) not found`})
-			} else {
-				c.Logger().Error(err)
-				return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
-			}
 		}
 
 		sess, err := session.Get("session", c)
@@ -126,7 +85,6 @@ func RegisterFinish(db *sql.DB, w *webauthn.WebAuthn) echo.HandlerFunc {
 
 		sessionData := sess.Values["sessionData"].(*webauthn.SessionData)
 		if sessionData == nil {
-			fmt.Println("sessionData is nil")
 			return c.JSON(http.StatusBadRequest, map[string]string{"message": "Invalid request"})
 		}
 
@@ -135,17 +93,8 @@ func RegisterFinish(db *sql.DB, w *webauthn.WebAuthn) echo.HandlerFunc {
 			c.Logger().Error(err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 		}
-		// fmt.Println("credential", credential)
 
-		stmt, err = conn.PrepareContext(ctx, "INSERT INTO credentials (user_id, credential) VALUES ($1,$2);")
-		defer stmt.Close()
-		if err != nil {
-			c.Logger().Error(err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
-		}
-
-		b, err := json.Marshal(credential)
-		if _, err = stmt.ExecContext(ctx, user.ID, string(b)); err != nil {
+		if err := utils.AddCredential(db, c.Request().Context(), user.ID, credential); err != nil {
 			c.Logger().Error(err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Internal server error"})
 		}
